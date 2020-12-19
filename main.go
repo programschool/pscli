@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -25,23 +26,23 @@ type Docker struct {
 
 func main() {
 	if len(os.Args) != 3 {
-		fmt.Println("bad num of arguments:\n\t1. = dir with image content\n\t2. = image name")
+		fmt.Println("bad num of arguments:\n\t1. = baseDir with image content\n\t2. = image name")
 		os.Exit(0)
 	}
 
 	client := Docker{}.client()
-	msg, err := client.buildImage(os.Args[1], os.Args[2])
+	baseDir := os.Args[1]
+	imageName := os.Args[2]
+	_, err := client.buildImage("./Dockerfile", baseDir, imageName)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	//cli := Docker{}.client().cli
 
-	fmt.Println(msg)
+	fmt.Println(fmt.Sprintf("\nBuild image %s", imageName))
 
-	fmt.Println("\n\n")
-
-	client.rebuildImage(os.Args[2])
+	client.rebuildImage(imageName)
 }
 
 func (docker Docker) client() Docker {
@@ -75,33 +76,62 @@ func tempFileName(prefix, suffix string) (string, error) {
 	return filepath.Join(os.TempDir(), prefix+hex.EncodeToString(randBytes)+suffix), nil
 }
 
-func (docker Docker) rebuildImage(name string) {
-	s, _, _ := docker.cli.ImageInspectWithRaw(docker.ctx, name)
-	fmt.Println(s.Config.Cmd)
-	fmt.Println(s.Config.Entrypoint)
-	fmt.Println(s.Config.Env)
+func (docker Docker) rebuildImage(imageName string) {
+	inspect, _, _ := docker.cli.ImageInspectWithRaw(docker.ctx, imageName)
 
-	env := []byte(strings.Join(s.Config.Env, "\", \""))
-	envstr := []string{"ENV [\"", string(env), "\"]"}
+	nweDockerfile := [][]string{
+		{"FROM ", imageName, "\n\n"},
+	}
 
-	f, err := os.OpenFile("dat1", os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+	if len(inspect.Config.Env) > 0 {
+		for i := range inspect.Config.Env {
+			nweDockerfile = append(nweDockerfile, []string{"ENV ", strings.Replace(inspect.Config.Env[i], "=", " ", 1)})
+		}
+	}
+	if len(inspect.Config.Entrypoint) > 0 {
+		entrypoint := []byte(strings.Join(inspect.Config.Entrypoint, "\", \""))
+		nweDockerfile = append(nweDockerfile, []string{"ENTRYPOINT [\"", string(entrypoint), "\"]"})
+	}
+	if len(inspect.Config.Cmd) > 0 {
+		cmd := []byte(strings.Join(inspect.Config.Cmd, "\", \""))
+		nweDockerfile = append(nweDockerfile, []string{"CMD [\"", string(cmd), "\"]"})
+	}
+
+	if err := os.Remove("Dockerfile.temp"); err != nil {
+		// no such file Dockerfile.temp
+	}
+	dockerfileTemp, err := os.OpenFile("Dockerfile.temp", os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
 	if err != nil {
 		panic(err)
 	}
+	defer dockerfileTemp.Close()
 
-	defer f.Close()
+	for i := range nweDockerfile {
+		if _, err = dockerfileTemp.WriteString(strings.Join(nweDockerfile[i], "")); err != nil {
+			panic(err)
+		}
+		if _, err = dockerfileTemp.WriteString("\n"); err != nil {
+			panic(err)
+		}
+	}
 
-	//if _, err = f.WriteString("text"); err != nil {
-	//	panic(err)
-	//}
+	fmt.Println("\n...\n")
 
-	f.WriteString(strings.Join(envstr, ""))
-	f.WriteString("\n\n")
-	f.WriteString(strings.Join(envstr, ""))
+	fullName := fmt.Sprintf("boxlayer.com/%s", os.Args[2])
+	_, err = docker.buildImage("./Dockerfile.temp", os.Args[1], fullName)
+	if err != nil {
+		log.Fatal(err)
+	}
 
+	fmt.Println(fmt.Sprintf("Build image %s\n", fullName))
+	fmt.Println(fmt.Sprintf("Build image success ✨✨！"))
+	fmt.Println(fmt.Sprintf("Next，test image and push image\n"))
+	fmt.Println(fmt.Sprintf("Test：\npscli --test %s\n", fullName))
+	fmt.Println(fmt.Sprintf("Push：\ndocker login boxlayer.com"))
+	fmt.Println(fmt.Sprintf("docker push %s\n", fullName))
 }
 
-func (docker Docker) buildImage(dir, name string) ([]string, error) {
+func (docker Docker) buildImage(dockerfile, baseDir, name string) ([]string, error) {
 
 	tarFile, err := tempFileName("docker-", ".image")
 	if err != nil {
@@ -109,7 +139,7 @@ func (docker Docker) buildImage(dir, name string) ([]string, error) {
 	}
 	defer os.Remove(tarFile)
 
-	if err := createTar(dir, tarFile); err != nil {
+	if err := createTar(baseDir, tarFile); err != nil {
 		return nil, err
 	}
 
@@ -131,7 +161,7 @@ func (docker Docker) buildImage(dir, name string) ([]string, error) {
 	}
 	defer os.Chdir(PWD)
 
-	if err := os.Chdir(dir); err != nil {
+	if err := os.Chdir(baseDir); err != nil {
 		return nil, err
 	}
 
@@ -139,7 +169,7 @@ func (docker Docker) buildImage(dir, name string) ([]string, error) {
 		ctx,
 		dockerFileTarReader,
 		types.ImageBuildOptions{
-			Dockerfile: "./Dockerfile",
+			Dockerfile: dockerfile,
 			Tags:       []string{name},
 			NoCache:    true,
 			Remove:     true,
@@ -162,6 +192,14 @@ func (docker Docker) buildImage(dir, name string) ([]string, error) {
 		} else if err != nil {
 			return messages, err
 		}
+
+		var step map[string]interface{}
+
+		if err = json.Unmarshal(n, &step); err != nil {
+			log.Fatal(err)
+		}
+
+		//fmt.Println(step["stream"])
 		messages = append(messages, string(n))
 	}
 
