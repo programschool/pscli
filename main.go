@@ -81,6 +81,7 @@ func (docker Docker) rebuildImage(imageName string) {
 
 	nweDockerfile := [][]string{
 		{"FROM ", imageName, "\n\n"},
+		{"# RUN curl -sSL https://build.boxlayer.com | bash\n"},
 	}
 
 	if len(inspect.Config.Env) > 0 {
@@ -121,6 +122,10 @@ func (docker Docker) rebuildImage(imageName string) {
 	_, err = docker.buildImage("./Dockerfile.temp", os.Args[1], fullName)
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	if err := os.Remove("Dockerfile.temp"); err != nil {
+		// no such file Dockerfile.temp
 	}
 
 	fmt.Println(fmt.Sprintf("Build image %s\n", fullName))
