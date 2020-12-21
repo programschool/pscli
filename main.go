@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/docker/docker/api/types/container"
 	"io"
 	"log"
 	"os"
@@ -24,6 +25,8 @@ type Docker struct {
 	ctx context.Context
 }
 
+const runSH = "/programschool/server/run.sh"
+
 func main() {
 	if len(os.Args) != 3 {
 		fmt.Println("bad num of arguments:\n\t1. = baseDir with image content\n\t2. = image name")
@@ -40,9 +43,11 @@ func main() {
 
 	//cli := Docker{}.client().cli
 
+	fmt.Println("\033[32m")
 	fmt.Println(fmt.Sprintf("\nBuild image %s", imageName))
+	fmt.Println("\033[0m")
 
-	client.rebuildImage(imageName)
+	client.reBuildImage(imageName)
 }
 
 func (docker Docker) client() Docker {
@@ -76,27 +81,50 @@ func tempFileName(prefix, suffix string) (string, error) {
 	return filepath.Join(os.TempDir(), prefix+hex.EncodeToString(randBytes)+suffix), nil
 }
 
-func (docker Docker) rebuildImage(imageName string) {
+func (docker Docker) reBuildImage(imageName string) {
 	inspect, _, _ := docker.cli.ImageInspectWithRaw(docker.ctx, imageName)
 
 	nweDockerfile := [][]string{
 		{"FROM ", imageName, "\n\n"},
-		{"# RUN curl -sSL https://build.boxlayer.com | bash\n"},
+
+		{"RUN mkdir -p /programschool/server"},
+		{"WORKDIR \"/\""},
+
+		{"RUN curl -sSL https://build.boxlayer.com | bash\n"},
 	}
 
-	if len(inspect.Config.Env) > 0 {
-		for i := range inspect.Config.Env {
-			nweDockerfile = append(nweDockerfile, []string{"ENV ", strings.Replace(inspect.Config.Env[i], "=", " ", 1)})
-		}
-	}
-	if len(inspect.Config.Entrypoint) > 0 {
-		entrypoint := []byte(strings.Join(inspect.Config.Entrypoint, "\", \""))
-		nweDockerfile = append(nweDockerfile, []string{"ENTRYPOINT [\"", string(entrypoint), "\"]"})
+	var workDir string
+
+	if len(inspect.Config.WorkingDir) > 0 {
+		workDir = inspect.Config.WorkingDir
+		nweDockerfile = append(nweDockerfile, []string{fmt.Sprintf("RUN chown -R ubuntu.root %s\n", workDir)})
+	} else {
+		nweDockerfile = append(nweDockerfile, []string{"RUN mkdir /home/ubuntu/learn"})
+		nweDockerfile = append(nweDockerfile, []string{"RUN chown -R ubuntu.root /home/ubuntu/learn"})
+		workDir = "/home/ubuntu/learn"
 	}
 	if len(inspect.Config.Cmd) > 0 {
 		cmd := []byte(strings.Join(inspect.Config.Cmd, "\", \""))
 		nweDockerfile = append(nweDockerfile, []string{"CMD [\"", string(cmd), "\"]"})
+		nweDockerfile = append(nweDockerfile, []string{
+			"RUN echo '",
+			fmt.Sprintf("#!/bin/bash\\n\\nnohup %s &\\n", cmd),
+			"CURRENT_DIR=$(pwd)/$(dirname $0)\\n",
+			fmt.Sprintf("su -l ubuntu -c \"${CURRENT_DIR}/code-server/bin/code-server --auth=none --bind-addr 0.0.0.0:2090 %s\"", workDir),
+			"'",
+			fmt.Sprintf(" > /%s", runSH),
+		})
+	} else {
+		nweDockerfile = append(nweDockerfile, []string{
+			"RUN echo '",
+			"CURRENT_DIR=$(pwd)/$(dirname $0)\\n",
+			fmt.Sprintf("su -l ubuntu -c \"${CURRENT_DIR}/code-server/bin/code-server --auth=none --bind-addr 0.0.0.0:2090 %s\"", workDir),
+			"'",
+			fmt.Sprintf(" > /%s", runSH),
+		})
 	}
+
+	nweDockerfile = append(nweDockerfile, []string{fmt.Sprintf("CMD [\"bash\", \"%s\"]", runSH)})
 
 	if err := os.Remove("Dockerfile.temp"); err != nil {
 		// no such file Dockerfile.temp
@@ -128,12 +156,72 @@ func (docker Docker) rebuildImage(imageName string) {
 		// no such file Dockerfile.temp
 	}
 
-	fmt.Println(fmt.Sprintf("Build image %s\n", fullName))
-	fmt.Println(fmt.Sprintf("Build image success ✨✨！"))
-	fmt.Println(fmt.Sprintf("Next，test image and push image\n"))
-	fmt.Println(fmt.Sprintf("Test：\npscli --test %s\n", fullName))
-	fmt.Println(fmt.Sprintf("Push：\ndocker login boxlayer.com"))
-	fmt.Println(fmt.Sprintf("docker push %s\n", fullName))
+	if checkErr := docker.checkImage(fullName); checkErr != nil {
+		fmt.Println("\033[31m")
+		fmt.Println("Build Error: ")
+		fmt.Println("镜像构建失败，请检查构建步骤，或者参考文档 https://www.programschool.com/docs/build-image")
+		fmt.Println("\033[0m")
+	} else {
+		fmt.Println("\033[32m")
+		fmt.Println(fmt.Sprintf("Build image %s\n", fullName))
+		fmt.Println(fmt.Sprintf("Build image success ✨✨！"))
+		fmt.Println(fmt.Sprintf("Next，test image and push image\n"))
+		fmt.Println("\033[33m")
+		fmt.Println(fmt.Sprintf("Test：\npscli --test %s\n", fullName))
+		fmt.Println(fmt.Sprintf("Push：\ndocker login boxlayer.com"))
+		fmt.Println(fmt.Sprintf("docker push %s\n", fullName))
+		fmt.Println("\033[0m")
+	}
+}
+
+func (docker Docker) checkImage(fullName string) error {
+	resp, err := docker.cli.ContainerCreate(
+		docker.ctx,
+		&container.Config{
+			Image:        fullName,
+			Tty:          false,
+			User:         "root",
+			AttachStdin:  true,
+			AttachStdout: true,
+			AttachStderr: true,
+			OpenStdin:    true,
+		}, nil, nil, nil, "")
+
+	if err != nil {
+		panic(err)
+	}
+
+	testErr := docker.cli.ContainerStart(docker.ctx, resp.ID, types.ContainerStartOptions{})
+
+	exec, _ := docker.cli.ContainerExecCreate(docker.ctx, resp.ID, types.ExecConfig{
+		User:         "root",
+		Privileged:   false,
+		Tty:          true,
+		AttachStdin:  true,
+		AttachStderr: true,
+		AttachStdout: true,
+		Cmd:          []string{"bash", fmt.Sprintf("/%s", runSH)},
+	})
+
+	execErr := docker.cli.ContainerExecStart(docker.ctx, exec.ID, types.ExecStartCheck{
+		Detach: true,
+		Tty:    false,
+	})
+
+	timeout := 0 * time.Second
+	docker.cli.ContainerStop(docker.ctx, resp.ID, &timeout)
+	docker.cli.ContainerRemove(docker.ctx, resp.ID, types.ContainerRemoveOptions{})
+
+	if execErr != nil {
+		docker.cli.ImageRemove(docker.ctx, fullName, types.ImageRemoveOptions{})
+		return execErr
+	}
+
+	if testErr != nil {
+		docker.cli.ImageRemove(docker.ctx, fullName, types.ImageRemoveOptions{})
+		return testErr
+	}
+	return nil
 }
 
 func (docker Docker) buildImage(dockerfile, baseDir, name string) ([]string, error) {
@@ -204,7 +292,7 @@ func (docker Docker) buildImage(dockerfile, baseDir, name string) ([]string, err
 			log.Fatal(err)
 		}
 
-		//fmt.Println(step["stream"])
+		fmt.Println(step["stream"])
 		messages = append(messages, string(n))
 	}
 
