@@ -27,26 +27,28 @@ type Docker struct {
 
 const runSH = "/programschool/server/run.sh"
 
+var baseDir, imageName string
+
 func main() {
+	client := Docker{}.client()
+
 	if len(os.Args) != 3 {
-		fmt.Println("bad num of arguments:\n\t1. = baseDir with image content\n\t2. = image name")
+		fmt.Println("构建镜像：\n\t1. 参数1 指定根目录\n\t2. 参数2 指定目标镜像名称（格式：myname/name）\n\t示例：pscli . myname/myimage")
+		fmt.Println("测试镜像：\n\tdocker run --rm --network host -it boxlayer.com/myname/name")
 		os.Exit(0)
 	}
 
-	client := Docker{}.client()
-	baseDir := os.Args[1]
-	imageName := os.Args[2]
+	baseDir = os.Args[1]
+	imageName = os.Args[2]
+
 	_, err := client.buildImage("./Dockerfile", baseDir, imageName)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	//cli := Docker{}.client().cli
-
 	fmt.Println("\033[32m")
 	fmt.Println(fmt.Sprintf("\nBuild image %s", imageName))
 	fmt.Println("\033[0m")
-
 	client.reBuildImage(imageName)
 }
 
@@ -146,8 +148,8 @@ func (docker Docker) reBuildImage(imageName string) {
 
 	fmt.Println("\n...\n")
 
-	fullName := fmt.Sprintf("boxlayer.com/%s", os.Args[2])
-	_, err = docker.buildImage("./Dockerfile.temp", os.Args[1], fullName)
+	fullName := fmt.Sprintf("boxlayer.com/%s", imageName)
+	_, err = docker.buildImage("./Dockerfile.temp", baseDir, fullName)
 	if err != nil {
 		log.Fatal(err)
 	}
