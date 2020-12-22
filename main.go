@@ -33,6 +33,7 @@ func main() {
 	client := Docker{}.client()
 
 	if len(os.Args) != 3 {
+		fmt.Println("version: 0.1")
 		fmt.Println("构建镜像：\n\t1. 参数1 指定根目录\n\t2. 参数2 指定目标镜像名称（格式：myname/name）\n\t示例：pscli . myname/myimage")
 		fmt.Println("测试镜像：\n\tdocker run --rm --network host -it boxlayer.com/myname/name")
 		os.Exit(0)
