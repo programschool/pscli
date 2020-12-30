@@ -32,8 +32,14 @@ var baseDir, imageName string
 func main() {
 	client := Docker{}.client()
 
+	version := "1.0"
+	if len(os.Args) == 2 && os.Args[1] == "--version" {
+		fmt.Println(fmt.Sprintf("version: %s", version))
+		os.Exit(0)
+	}
+
 	if len(os.Args) != 3 {
-		fmt.Println("version: 0.1")
+		fmt.Println(fmt.Sprintf("version: %s", version))
 		fmt.Println("构建镜像：\n\t1. 参数1 指定根目录\n\t2. 参数2 指定目标镜像名称（格式：myname/name）\n\t示例：pscli . myname/myimage")
 		fmt.Println("测试镜像：\n\tdocker run --rm --network host -it boxlayer.com/myname/name")
 		os.Exit(0)
@@ -107,8 +113,7 @@ func (docker Docker) reBuildImage(imageName string) {
 		workDir = "/home/ubuntu/learn"
 	}
 	if len(inspect.Config.Cmd) > 0 {
-		cmd := []byte(strings.Join(inspect.Config.Cmd, "\", \""))
-		nweDockerfile = append(nweDockerfile, []string{"CMD [\"", string(cmd), "\"]"})
+		cmd := []byte(strings.Join(inspect.Config.Cmd, " "))
 		nweDockerfile = append(nweDockerfile, []string{
 			"RUN echo '",
 			fmt.Sprintf("#!/bin/bash\\n\\nnohup %s &\\n", cmd),
@@ -120,10 +125,21 @@ func (docker Docker) reBuildImage(imageName string) {
 	} else {
 		nweDockerfile = append(nweDockerfile, []string{
 			"RUN echo '",
+			fmt.Sprintf("#!/bin/bash\\n"),
 			"CURRENT_DIR=$(pwd)/$(dirname $0)\\n",
 			fmt.Sprintf("su -l ubuntu -c \"${CURRENT_DIR}/code-server/bin/code-server --auth=none --bind-addr 0.0.0.0:2090 %s\"", workDir),
 			"'",
 			fmt.Sprintf(" > /%s", runSH),
+		})
+	}
+
+	if len(inspect.Config.Env) > 0 {
+		var environment []string
+		for i := range inspect.Config.Env {
+			environment = append(environment, fmt.Sprintf("%s\\n", inspect.Config.Env[i]))
+		}
+		nweDockerfile = append(nweDockerfile, []string{
+			fmt.Sprintf("RUN echo '%s' >> /etc/environment", strings.Join(environment, "")),
 		})
 	}
 
@@ -170,7 +186,7 @@ func (docker Docker) reBuildImage(imageName string) {
 		fmt.Println(fmt.Sprintf("Build image success ✨✨！"))
 		fmt.Println(fmt.Sprintf("Next，test image and push image\n"))
 		fmt.Println("\033[33m")
-		fmt.Println(fmt.Sprintf("Test：\npscli --test %s\n", fullName))
+		fmt.Println(fmt.Sprintf("Test：\ndocker run --rm --network host -it %s\n", fullName))
 		fmt.Println(fmt.Sprintf("Push：\ndocker login boxlayer.com"))
 		fmt.Println(fmt.Sprintf("docker push %s\n", fullName))
 		fmt.Println("\033[0m")
