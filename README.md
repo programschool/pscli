@@ -4,5 +4,5 @@ chmod +x /usr/local/bin/pscli
 ```
 
 ```shell
-pscli . my-username/image-name
+pscli . boxlayer.com/my-username/image-name
 ```
