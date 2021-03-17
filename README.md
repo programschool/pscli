@@ -1,15 +1,8 @@
 ```shell
-curl -sSL pscli.boxlayer.com -o pscli
+curl -SL https://pscli.boxlayer.com -o /usr/local/bin/pscli && \
+chmod +x /usr/local/bin/pscli
 ```
 
 ```shell
-chmod +x pscli
-```
-
-```shell
-mv pscli /usr/local/bin/
-```
-
-```shell
-pscli . myname/name
+pscli . my-username/image-name
 ```
