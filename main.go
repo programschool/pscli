@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -120,7 +121,7 @@ func (docker Docker) reBuildImage(imageName string) {
 			"CURRENT_DIR=$(pwd)/$(dirname $0)\\n",
 			fmt.Sprintf("su -l ubuntu -c \"${CURRENT_DIR}/code-server/bin/code-server --auth=none --bind-addr 0.0.0.0:2090 %s\"", workDir),
 			"'",
-			fmt.Sprintf(" > /%s", runSH),
+			fmt.Sprintf(" > %s", runSH),
 		})
 	} else {
 		nweDockerfile = append(nweDockerfile, []string{
@@ -129,7 +130,7 @@ func (docker Docker) reBuildImage(imageName string) {
 			"CURRENT_DIR=$(pwd)/$(dirname $0)\\n",
 			fmt.Sprintf("su -l ubuntu -c \"${CURRENT_DIR}/code-server/bin/code-server --auth=none --bind-addr 0.0.0.0:2090 %s\"", workDir),
 			"'",
-			fmt.Sprintf(" > /%s", runSH),
+			fmt.Sprintf(" > %s", runSH),
 		})
 	}
 
@@ -219,7 +220,7 @@ func (docker Docker) checkImage(fullName string) error {
 		AttachStdin:  true,
 		AttachStderr: true,
 		AttachStdout: true,
-		Cmd:          []string{"bash", fmt.Sprintf("/%s", runSH)},
+		Cmd:          []string{"bash", fmt.Sprintf("%s", runSH)},
 	})
 
 	execErr := docker.cli.ContainerExecStart(docker.ctx, exec.ID, types.ExecStartCheck{
@@ -244,6 +245,23 @@ func (docker Docker) checkImage(fullName string) error {
 }
 
 func (docker Docker) buildImage(dockerfile, baseDir, name string) ([]string, error) {
+	authConfig := types.AuthConfig{
+		Username: "image",
+		Password: "Z29kYWRkeQ==",
+	}
+	encodedJSON, err := json.Marshal(authConfig)
+	if err != nil {
+		panic(err)
+	}
+	authStr := base64.URLEncoding.EncodeToString(encodedJSON)
+
+	reader, err := docker.cli.ImagePull(docker.ctx, "boxlayer.com/official/base", types.ImagePullOptions{
+		RegistryAuth: authStr,
+	})
+	if err != nil {
+		panic(err)
+	}
+	io.Copy(os.Stdout, reader)
 
 	tarFile, err := tempFileName("docker-", ".image")
 	if err != nil {
