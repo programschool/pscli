@@ -119,7 +119,7 @@ func (docker Docker) reBuildImage(imageName string) {
 			"RUN echo '",
 			fmt.Sprintf("#!/bin/bash\\n\\nnohup %s &\\n", cmd),
 			"CURRENT_DIR=$(pwd)/$(dirname $0)\\n",
-			fmt.Sprintf("su -l ubuntu -c \"${CURRENT_DIR}/code-server/bin/code-server --auth=none --bind-addr 0.0.0.0:2090 %s\"", workDir),
+			fmt.Sprintf("su -l ubuntu -c \"${CURRENT_DIR}/code-server/bin/code-server --disable-update-check --home '#' --auth=none --bind-addr 0.0.0.0:2090 %s\"", workDir),
 			"'",
 			fmt.Sprintf(" > %s", runSH),
 		})
@@ -128,7 +128,7 @@ func (docker Docker) reBuildImage(imageName string) {
 			"RUN echo '",
 			fmt.Sprintf("#!/bin/bash\\n"),
 			"CURRENT_DIR=$(pwd)/$(dirname $0)\\n",
-			fmt.Sprintf("su -l ubuntu -c \"${CURRENT_DIR}/code-server/bin/code-server --auth=none --bind-addr 0.0.0.0:2090 %s\"", workDir),
+			fmt.Sprintf("su -l ubuntu -c \"${CURRENT_DIR}/code-server/bin/code-server --disable-update-check --home '#' --auth=none --bind-addr 0.0.0.0:2090 %s\"", workDir),
 			"'",
 			fmt.Sprintf(" > %s", runSH),
 		})
