@@ -33,7 +33,7 @@ var baseDir, imageName string
 func main() {
 	client := Docker{}.client()
 
-	version := "1.0"
+	version := "1.0.4"
 	if len(os.Args) == 2 && os.Args[1] == "--version" {
 		fmt.Println(fmt.Sprintf("version: %s", version))
 		os.Exit(0)
@@ -109,7 +109,7 @@ func (docker Docker) reBuildImage(imageName string) {
 		workDir = inspect.Config.WorkingDir
 		nweDockerfile = append(nweDockerfile, []string{fmt.Sprintf("RUN chown -R ubuntu.root %s\n", workDir)})
 	} else {
-		nweDockerfile = append(nweDockerfile, []string{"RUN mkdir /home/ubuntu/learn"})
+		nweDockerfile = append(nweDockerfile, []string{"RUN mkdir -p /home/ubuntu/learn"})
 		nweDockerfile = append(nweDockerfile, []string{"RUN chown -R ubuntu.root /home/ubuntu/learn"})
 		workDir = "/home/ubuntu/learn"
 	}
@@ -119,7 +119,7 @@ func (docker Docker) reBuildImage(imageName string) {
 			"RUN echo '",
 			fmt.Sprintf("#!/bin/bash\\n\\nnohup %s &\\n", cmd),
 			"CURRENT_DIR=$(pwd)/$(dirname $0)\\n",
-			fmt.Sprintf("su -l ubuntu -c \"${CURRENT_DIR}/code-server/bin/code-server --disable-update-check --home '#' --auth=none --bind-addr 0.0.0.0:2090 %s\"", workDir),
+			fmt.Sprintf("su -l ubuntu -c \"${CURRENT_DIR}/code-server/bin/code-server --disable-update-check --auth=none --bind-addr 0.0.0.0:2090 %s\"", workDir),
 			"'",
 			fmt.Sprintf(" > %s", runSH),
 		})
@@ -128,9 +128,17 @@ func (docker Docker) reBuildImage(imageName string) {
 			"RUN echo '",
 			fmt.Sprintf("#!/bin/bash\\n"),
 			"CURRENT_DIR=$(pwd)/$(dirname $0)\\n",
-			fmt.Sprintf("su -l ubuntu -c \"${CURRENT_DIR}/code-server/bin/code-server --disable-update-check --home '#' --auth=none --bind-addr 0.0.0.0:2090 %s\"", workDir),
+			fmt.Sprintf("su -l ubuntu -c \"${CURRENT_DIR}/code-server/bin/code-server --disable-update-check --auth=none --bind-addr 0.0.0.0:2090 %s\"", workDir),
 			"'",
 			fmt.Sprintf(" > %s", runSH),
+		})
+	}
+
+	workDirFile := fmt.Sprintf("%s/WORKDIR", baseDir)
+	if _, err := os.Stat(workDirFile); err == nil {
+		// path/to/whatever exists
+		nweDockerfile = append(nweDockerfile, []string{
+			fmt.Sprintf("COPY WORKDIR %s", workDir),
 		})
 	}
 
@@ -146,10 +154,11 @@ func (docker Docker) reBuildImage(imageName string) {
 
 	nweDockerfile = append(nweDockerfile, []string{fmt.Sprintf("CMD [\"bash\", \"%s\"]", runSH)})
 
+	temp := fmt.Sprintf("%s/Dockerfile.temp", baseDir)
 	if err := os.Remove("Dockerfile.temp"); err != nil {
 		// no such file Dockerfile.temp
 	}
-	dockerfileTemp, err := os.OpenFile("Dockerfile.temp", os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+	dockerfileTemp, err := os.OpenFile(temp, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
 	if err != nil {
 		panic(err)
 	}
@@ -167,12 +176,12 @@ func (docker Docker) reBuildImage(imageName string) {
 	fmt.Println("\n...\n")
 
 	fullName := fmt.Sprintf("boxlayer.com/%s", imageName)
-	_, err = docker.buildImage("./Dockerfile.temp", baseDir, fullName)
+	_, err = docker.buildImage("Dockerfile.temp", baseDir, fullName)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	if err := os.Remove("Dockerfile.temp"); err != nil {
+	if err := os.Remove(temp); err != nil {
 		// no such file Dockerfile.temp
 	}
 
